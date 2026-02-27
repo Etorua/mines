@@ -23,9 +23,11 @@ app.use(bodyParser.json());
 // Routes
 const userRoutes = require('./routes/userRoutes');
 const gameRoutes = require('./routes/gameRoutes');
+const adminRoutes = require('./routes/adminRoutes');
 
 app.use('/api/users', userRoutes);
 app.use('/api/games', gameRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Initialize DB Tables
 const initializeDB = async () => {
@@ -37,7 +39,8 @@ const initializeDB = async () => {
         id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
         username VARCHAR(255) UNIQUE NOT NULL,
         password VARCHAR(255) NOT NULL,
-        balance DECIMAL(10, 2) DEFAULT 0.00 CHECK (balance >= 0)
+        balance DECIMAL(10, 2) DEFAULT 0.00 CHECK (balance >= 0),
+        is_admin BOOLEAN DEFAULT FALSE
       );
     `);
 

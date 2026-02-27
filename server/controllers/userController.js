@@ -45,7 +45,7 @@ exports.login = async (req, res) => {
         }
 
         const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET || 'secret', { expiresIn: '1h' });
-        res.json({ token, user: { id: user.id, username: user.username, balance: user.balance } });
+        res.json({ token, user: { id: user.id, username: user.username, balance: user.balance, is_admin: user.is_admin } });
     } catch (err) {
         console.error("Login error:", err);
         res.status(500).json({ error: "Server error during login" });
@@ -55,7 +55,7 @@ exports.login = async (req, res) => {
 exports.getProfile = async (req, res) => {
     try {
         // Querying by 'id' not 'user_id'
-        const user = await pool.query("SELECT id, username, balance FROM users WHERE id = $1", [req.user.id]);
+        const user = await pool.query("SELECT id, username, balance, is_admin FROM users WHERE id = $1", [req.user.id]);
         if (user.rows.length === 0) return res.status(404).json({ error: "User not found" });
         res.json(user.rows[0]);
     } catch (err) {

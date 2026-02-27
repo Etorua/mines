@@ -5,6 +5,7 @@ interface User {
     id: string;
     username: string;
     balance: string;
+    is_admin: boolean;
 }
 
 interface AuthContextType {
@@ -37,6 +38,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const refreshProfile = async () => {
         try {
             const res = await api.get('/users/profile');
+            console.log("Profile refreshed:", res.data);
             setUser(res.data);
             setIsAuthenticated(true);
         } catch (err) {
