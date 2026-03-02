@@ -1,12 +1,12 @@
 import React, { useContext } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Link } from 'react-router-dom';
-import { AuthProvider, AuthContext } from './context/AuthContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import MinesGame from './components/MinesGame';
 import AuthPage from './pages/AuthPage';
 import AdminDashboard from './pages/AdminDashboard'; // Ensure this path is correct
 
 const AppContent = () => {
-    const { isAuthenticated, logout, user } = useContext(AuthContext);
+    const { isAuthenticated, logout, user } = useAuth();
     console.log("App User:", user);
 
     if (!isAuthenticated) {

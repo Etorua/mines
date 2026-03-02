@@ -1,6 +1,6 @@
-import React, { useEffect, useState, useContext } from 'react';
+import React, { useEffect, useState } from 'react';
 import api from '../api';
-import { AuthContext } from '../context/AuthContext';
+import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
 interface AdminUser {
@@ -21,7 +21,7 @@ interface Stats {
 }
 
 const AdminDashboard: React.FC = () => {
-    const { user, isAuthenticated } = useContext(AuthContext);
+    const { user, isAuthenticated } = useAuth();
     const navigate = useNavigate();
     const [users, setUsers] = useState<AdminUser[]>([]);
     const [stats, setStats] = useState<Stats | null>(null);
