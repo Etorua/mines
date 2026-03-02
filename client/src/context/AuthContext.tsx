@@ -44,6 +44,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         } catch (err) {
             console.error("Error refreshing profile", err);
             // logout(); // Only if token expired
+            logout();
         }
     };
 

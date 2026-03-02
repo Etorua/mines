@@ -1,10 +1,10 @@
 const pool = require('../config/db');
 
-const BOARD_SIZE = 25;
+// const BOARD_SIZE = 25; // Removed in favor of dynamic size
 
-const calculateProfit = (bet, minesCount, revealedCount) => {
+const calculateProfit = (bet, minesCount, revealedCount, gridSize = 5) => {
     let multiplier = 1;
-    const totalCells = BOARD_SIZE;
+    const totalCells = gridSize * gridSize;
     const safeCells = totalCells - minesCount;
 
     for (let i = 0; i < revealedCount; i++) {
@@ -29,11 +29,16 @@ const calculateProfit = (bet, minesCount, revealedCount) => {
 };
 
 exports.startGame = async (req, res) => {
-    const { betAmount, minesCount } = req.body;
+    const { betAmount, minesCount, gridSize = 5 } = req.body;
     const userId = req.user.id;
 
     if (!betAmount || betAmount <= 0) return res.status(400).json({ error: "Invalid bet amount" });
-    if (!minesCount || minesCount < 1 || minesCount >= 25) return res.status(400).json({ error: "Invalid mines count (1-24)" });
+    
+    const validGridSizes = [3, 4, 5, 6, 7];
+    if (!validGridSizes.includes(gridSize)) return res.status(400).json({ error: "Invalid grid size" });
+
+    const totalCells = gridSize * gridSize;
+    if (!minesCount || minesCount < 1 || minesCount >= totalCells) return res.status(400).json({ error: `Invalid mines count (1-${totalCells - 1})` });
 
     const client = await pool.connect();
 
@@ -53,18 +58,16 @@ exports.startGame = async (req, res) => {
         await client.query("UPDATE users SET balance = balance - $1 WHERE id = $2", [betAmount, userId]);
 
         // Create Game
-        const mines = Array.from({length: minesCount}, () => Math.floor(Math.random() * 25)); // Simple random, duplicates possible?
-        // Fix duplication
         const uniqueMines = new Set();
         while(uniqueMines.size < minesCount) {
-            uniqueMines.add(Math.floor(Math.random() * 25));
+            uniqueMines.add(Math.floor(Math.random() * totalCells));
         }
         const mineLocations = Array.from(uniqueMines);
 
         const newGame = await client.query(
-            `INSERT INTO games (user_id, bet_amount, mines_count, mine_locations, status) 
-             VALUES ($1, $2, $3, $4, 'active') RETURNING id`,
-            [userId, betAmount, minesCount, JSON.stringify(mineLocations)]
+            `INSERT INTO games (user_id, bet_amount, mines_count, mine_locations, status, grid_size) 
+             VALUES ($1, $2, $3, $4, 'active', $5) RETURNING id`,
+            [userId, betAmount, minesCount, JSON.stringify(mineLocations), gridSize]
         );
 
         await client.query("INSERT INTO transactions (user_id, type, amount) VALUES ($1, 'bet', $2)", [userId, betAmount]);
@@ -75,8 +78,11 @@ exports.startGame = async (req, res) => {
             gameId: newGame.rows[0].id, 
             minesCount, 
             betAmount,
+            gridSize,
             balance: balance - betAmount
         });
+// ... rest of the file
+
 
     } catch (err) {
         await client.query('ROLLBACK');
@@ -109,13 +115,15 @@ exports.revealCell = async (req, res) => {
             await pool.query("UPDATE games SET status = 'exploded', revealed_cells = $1 WHERE id = $2", [JSON.stringify([...revealed, cellIndex]), gameId]);
             return res.json({ 
                 status: 'exploded', 
-                mineLocations: mines, // Reveal all mines
-                profit: 0 
+                mineLocations: mines, 
+                profit: 0,
+                gridSize: game.grid_size || 5
             });
         } else {
             // SAFE
             const newRevealed = [...revealed, cellIndex];
-            const profit = calculateProfit(parseFloat(game.bet_amount), game.mines_count, newRevealed.length);
+            const gridSize = game.grid_size || 5;
+            const profit = calculateProfit(parseFloat(game.bet_amount), game.mines_count, newRevealed.length, gridSize);
             
             await pool.query(
                 "UPDATE games SET revealed_cells = $1, profit = $2 WHERE id = $3",
@@ -126,7 +134,8 @@ exports.revealCell = async (req, res) => {
                 status: 'active',
                 revealedCells: newRevealed,
                 profit: profit.toFixed(2),
-                potentialWin: (parseFloat(game.bet_amount) + profit).toFixed(2)
+                potentialWin: (parseFloat(game.bet_amount) + profit).toFixed(2),
+                gridSize
             });
         }
 
@@ -188,7 +197,8 @@ exports.getActiveGame = async (req, res) => {
                  betAmount: game.bet_amount,
                  minesCount: game.mines_count,
                  revealedCells: revealed,
-                 profit: game.profit
+                 profit: game.profit,
+                 gridSize: game.grid_size || 5
              });
          } else {
              res.json(null);
@@ -198,3 +208,34 @@ exports.getActiveGame = async (req, res) => {
          res.status(500).json({error: "Error fetching active game"});
      }
 }
+
+exports.getRecentGames = async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT g.id, u.username, g.bet_amount, g.profit, g.status, g.mines_count 
+            FROM games g 
+            JOIN users u ON g.user_id = u.id 
+            WHERE g.status IN ('cashed_out', 'exploded') 
+            ORDER BY g.created_at DESC 
+            LIMIT 15
+        `);
+        
+        // Format for frontend
+        const games = result.rows.map(game => ({
+            id: game.id,
+            user: game.username,
+            bet: parseFloat(game.bet_amount),
+            profit: parseFloat(game.profit),
+            multiplier: game.status === 'cashed_out' && parseFloat(game.bet_amount) > 0
+                ? ((parseFloat(game.bet_amount) + parseFloat(game.profit)) / parseFloat(game.bet_amount)).toFixed(2) + 'x'
+                : '0.00x',
+            status: game.status,
+            mines: game.mines_count
+        }));
+        
+        res.json(games);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: "Error fetching recent games" });
+    }
+};

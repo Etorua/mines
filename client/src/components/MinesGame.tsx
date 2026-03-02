@@ -1,393 +1,518 @@
-import React, { useState, useEffect, useContext } from 'react';
-import { Diamond, Bomb, AlertCircle, Coins, DollarSign, ArrowRight } from 'lucide-react';
-
+import React, { useState, useEffect, useRef } from 'react';
 import api from '../api';
-import { AuthContext } from '../context/AuthContext';
+import { useAuth } from '../context/AuthContext';
+import { 
+  Bomb, 
+  Diamond, 
+  Volume2, 
+  VolumeX, 
+  TrendingUp, 
+  History, 
+  ShieldCheck, 
+  Play, 
+  LogOut,
+  Grid3X3,
+  LayoutGrid
+} from 'lucide-react';
 
-const MinesGame = () => {
-    const { user, refreshProfile } = useContext(AuthContext);
-    const [betAmount, setBetAmount] = useState(10);
-    const [minesCount, setMinesCount] = useState(3);
-    const [gameId, setGameId] = useState<string | null>(null);
-    const [gameState, setGameState] = useState<'idle' | 'playing' | 'cashed_out' | 'exploded'>('idle');
-    const [revealedCells, setRevealedCells] = useState<number[]>([]);
-    const [mineLocations, setMineLocations] = useState<number[]>([]);
-    const [profit, setProfit] = useState(0);
-    const [potentialWin, setPotentialWin] = useState(0);
-    const [error, setError] = useState('');
+// Sound effects URLs
+const SOUNDS = {
+  click: 'https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3',
+  gem: 'https://assets.mixkit.co/active_storage/sfx/1114/1114-preview.mp3',
+  explode: 'https://assets.mixkit.co/active_storage/sfx/1701/1701-preview.mp3',
+  win: 'https://assets.mixkit.co/active_storage/sfx/1120/1120-preview.mp3',
+  hover: 'https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3'
+};
 
-    const [loading, setLoading] = useState(false);
+const GRID_SIZES = [3, 4, 5, 6, 7];
+
+const MinesGame: React.FC = () => {
+  const { user, refreshUser, logout } = useAuth();
+  
+  // Game Configuration State
+  const [betAmount, setBetAmount] = useState<number>(10);
+  const [minesCount, setMinesCount] = useState<number>(3);
+  const [gridSize, setGridSize] = useState<number>(5);
+  
+  // Game Play State
+  const [gameId, setGameId] = useState<number | null>(null);
+  const [activeer, setActiveer] = useState<boolean>(false); // Is a game currently running?
+  const [revealedCells, setRevealedCells] = useState<number[]>([]);
+  const [mineLocations, setMineLocations] = useState<number[]>([]); // Only known after loss
+  const [currentProfit, setCurrentProfit] = useState<number>(0);
+  const [isExploded, setIsExploded] = useState<boolean>(false);
+  const [isCashout, setIsCashout] = useState<boolean>(false);
+  
+  // UI State
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
+  const [inLobby, setInLobby] = useState<boolean>(true);
+  
+  // Data State
+  const [recentGames, setRecentGames] = useState<any[]>([]);
+  const [jackpot, setJackpot] = useState<number>(12450.32);
+
+  // Refs for Audio
+  const audioRefs = useRef<{ [key: string]: HTMLAudioElement }>({});
+
+  // Initialize Audio
+  useEffect(() => {
+    Object.entries(SOUNDS).forEach(([key, url]) => {
+      audioRefs.current[key] = new Audio(url);
+      audioRefs.current[key].volume = 0.4;
+    });
     
-    // Wallet Modal State
-    const [showWalletModal, setShowWalletModal] = useState(false);
-    const [transactionType, setTransactionType] = useState<'deposit' | 'withdraw'>('deposit');
-    const [transactionAmount, setTransactionAmount] = useState(100);
+    // Auto-update jackpot simulation
+    const interval = setInterval(() => {
+      setJackpot(prev => prev + Math.random() * 0.05);
+    }, 3000);
 
-    // This handles the generic check for active games.
-    useEffect(() => {
-        checkActiveGame();
-    }, []);
+    return () => clearInterval(interval);
+  }, []);
 
-    const handleTransaction = (type: 'deposit' | 'withdraw') => {
-        setTransactionType(type);
-        setTransactionAmount(100); // Reset default amount
-        setShowWalletModal(true);
+  // Fetch initial game state and history
+  useEffect(() => {
+    fetchActiveGame();
+    fetchRecentGames();
+    const feedInterval = setInterval(fetchRecentGames, 5000);
+    return () => clearInterval(feedInterval);
+  }, []);
+
+  const playSound = (name: string) => {
+    if (soundEnabled && audioRefs.current[name]) {
+      audioRefs.current[name].currentTime = 0;
+      audioRefs.current[name].play().catch(() => {});
+    }
+  };
+
+  const fetchActiveGame = async () => {
+    try {
+      const { data } = await api.get('/games/active');
+      if (data) {
+        setGameId(data.gameId);
+        setBetAmount(parseFloat(data.betAmount));
+        setMinesCount(data.minesCount);
+        setRevealedCells(data.revealedCells || []);
+        setCurrentProfit(parseFloat(data.profit || 0));
+        setGridSize(data.gridSize || 5); // Restore grid size
+        setActiveer(true);
+        setInLobby(false);
+      }
+    } catch (error) {
+      console.error("Error fetching active game", error);
+    }
+  };
+
+  const fetchRecentGames = async () => {
+    try {
+      const { data } = await api.get('/games/recent');
+      setRecentGames(data);
+    } catch (error) {
+      console.error("Recent games error:", error);
+    }
+  };
+
+  const startGame = async () => {
+    if (betAmount > user!.balance) {
+      alert("Fondos insuficientes");
+      return;
+    }
+    
+    playSound('click');
+    setIsLoading(true);
+    setMineLocations([]);
+    setIsExploded(false);
+    setIsCashout(false);
+    setRevealedCells([]);
+    setCurrentProfit(0);
+    
+    try {
+      const { data } = await api.post('/games/start', { 
+        betAmount, 
+        minesCount,
+        gridSize 
+      });
+      
+      setGameId(data.gameId);
+      setActiveer(true);
+      await refreshUser();
+    } catch (error) {
+      alert("Error al iniciar juego");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleCellClick = async (index: number) => {
+    if (!gameId || isExploded || isCashout || revealedCells.includes(index) || isLoading) return;
+
+    setIsLoading(true);
+    try {
+      const { data } = await api.post('/games/reveal', { gameId, cellIndex: index });
+      
+      if (data.status === 'exploded') {
+        setIsExploded(true);
+        setMineLocations(data.mineLocations);
+        playSound('explode');
+        setActiveer(false);
+        fetchRecentGames(); // Update feed immediately
+      } else {
+        setRevealedCells(data.revealedCells);
+        setCurrentProfit(parseFloat(data.profit));
+        playSound('gem');
+      }
+    } catch (error) {
+      console.error("Reveal error", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const cashout = async () => {
+    if (!gameId || isExploded || isCashout) return;
+    
+    setIsLoading(true);
+    try {
+      await api.post('/games/cashout', { gameId });
+      setIsCashout(true);
+      setActiveer(false);
+      playSound('win');
+      await refreshUser();
+      fetchRecentGames(); // Update feed immediately
+    } catch (error) {
+      console.error("Cashout error", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Helper to calculate potential next multiplier locally for UI preview
+  const getNextMultiplier = () => {
+    // Simplified probability logic for UI display only
+    const totalCells = gridSize * gridSize;
+    const remainingSafe = (totalCells - minesCount) - revealedCells.length;
+    const remainingTotal = totalCells - revealedCells.length;
+    if (remainingTotal === 0) return 0;
+    
+    const prob = remainingSafe / remainingTotal;
+    const multi = (1 / prob) * 0.97;
+    
+    // Approximate current multiplier
+    let currentMult = 1;
+    for(let i=0; i<revealedCells.length; i++) {
+        const rS = (totalCells - minesCount) - i;
+        const rT = totalCells - i;
+        currentMult *= (1 / (rS/rT));
+    }
+    currentMult *= 0.97; // House edge
+    
+    return (currentMult * multi).toFixed(2);
+  };
+
+  // Dynamic grid styling
+  const getGridStyle = () => {
+    return {
+      gridTemplateColumns: `repeat(${gridSize}, minmax(0, 1fr))`,
     };
+  };
 
-    const confirmTransaction = async () => {
-        if (transactionAmount <= 0) return;
-        setLoading(true);
-        try {
-            const endpoint = transactionType === 'deposit' ? '/users/deposit' : '/users/withdraw';
-            await api.post(endpoint, { amount: transactionAmount });
-            
-            // Wait a sec for visual effect then refresh
-            setTimeout(async () => {
-                await refreshProfile();
-                setShowWalletModal(false);
-                setLoading(false);
-            }, 500);
-            
-            setError(''); 
-        } catch (err: any) {
-             setError(err.response?.data?.error || "Transaction failed");
-             setLoading(false);
-        }
-    };
+  const renderLobby = () => (
+    <div className="flex flex-col items-center justify-center min-h-[600px] bg-[#0f212e] text-white p-8 animate-fade-in">
+        <div className="text-center mb-12">
+            <h1 className="text-6xl font-black text-[#00E701] mb-4 tracking-tighter drop-shadow-lg">MINES</h1>
+            <p className="text-gray-400 text-xl font-light">El juego de casino #1 del mundo</p>
+        </div>
 
-    const checkActiveGame = async () => {
-        try {
-            const res = await api.get('/games/active');
-            if (res.data) {
-                setGameId(res.data.gameId);
-                setBetAmount(res.data.betAmount);
-                setMinesCount(res.data.minesCount);
-                setRevealedCells(res.data.revealedCells);
-                setProfit(parseFloat(res.data.profit));
-                setGameState('playing');
-                // Calculate next win? We need backend for that accurately or replicate logic
-            }
-        } catch (err) {
-            console.error("No active game or error", err);
-        }
-    };
-
-    const startGame = async () => {
-        if (loading) return;
-        setLoading(true);
-        setError('');
-        try {
-            const res = await api.post('/games/start', { betAmount, minesCount });
-            setGameId(res.data.gameId);
-            setGameState('playing');
-            setRevealedCells([]);
-            setMineLocations([]);
-            setProfit(0);
-            setPotentialWin(0); // Will be updated on reveal
-            await refreshProfile();
-        } catch (err: any) {
-            setError(err.response?.data?.error || "Failed to start game");
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const revealCell = async (index: number) => {
-        if (gameState !== 'playing' || loading || revealedCells.includes(index)) return;
-        setLoading(true);
-        try {
-            const res = await api.post('/games/reveal', { gameId, cellIndex: index });
-            
-            if (res.data.status === 'exploded') {
-                setGameState('exploded');
-                setMineLocations(res.data.mineLocations);
-                setRevealedCells((prev) => [...prev, index]); // Add the exploded one
-            } else {
-                setRevealedCells(res.data.revealedCells);
-                setProfit(parseFloat(res.data.profit));
-                setPotentialWin(parseFloat(res.data.potentialWin));
-            }
-        } catch (err: any) {
-            setError(err.response?.data?.error || "Error revealing cell");
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const cashout = async () => {
-        if (gameState !== 'playing' || loading) return;
-        setLoading(true);
-        try {
-            const res = await api.post('/games/cashout', { gameId });
-            setGameState('cashed_out');
-            setProfit(parseFloat(res.data.totalWin) - betAmount); // Show net profit
-            await refreshProfile();
-        } catch (err: any) {
-            setError(err.response?.data?.error || "Error cashing out");
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const renderCell = (index: number) => {
-        const isRevealed = revealedCells.includes(index);
-        const isMine = mineLocations.includes(index);
-        const isExploded = gameState === 'exploded' && isMine;
-        
-        let content = null;
-        let bgClass = "bg-gray-700 hover:bg-gray-600";
-
-        if (isRevealed) {
-            if (isExploded) {
-                content = <Bomb className="w-8 h-8 text-white animate-pulse" />;
-                bgClass = "bg-red-600";
-            } else if (isMine) {
-                 content = <Bomb className="w-6 h-6 text-gray-400" />;
-                 bgClass = "bg-gray-800 opacity-50";
-            } else {
-                content = <Diamond className="w-8 h-8 text-green-400 drop-shadow-lg" />;
-                bgClass = "bg-gray-800 border-2 border-green-500/30";
-            }
-        } else if (gameState === 'exploded' && isMine) {
-             content = <Bomb className="w-6 h-6 text-gray-500" />;
-             bgClass = "bg-gray-800 opacity-40";
-        } else if (gameState === 'cashed_out' && revealedCells.includes(index)) {
-             content = <Diamond className="w-8 h-8 text-green-400 opacity-50" />;
-             bgClass = "bg-gray-800";
-        }
-
-        return (
-            <button
-                key={index}
-                disabled={gameState !== 'playing' || isRevealed}
-                onClick={() => revealCell(index)}
-                className={`w-full aspect-square rounded-lg flex items-center justify-center transition-all transform hover:scale-[1.02] active:scale-95 duration-200 ${bgClass} ${
-                    gameState === 'playing' && !isRevealed ? 'cursor-pointer shadow-lg shadow-black/20' : 'cursor-default'
-                }`}
-            >
-                {content}
-            </button>
-        );
-    };
-
-
-    return (
-        <div className="flex flex-col lg:flex-row gap-8 max-w-6xl mx-auto p-6 text-white min-h-[600px] relative">
-            
-            {/* Wallet Modal */}
-            {showWalletModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                    <div className="bg-gray-800 p-8 rounded-2xl w-full max-w-md border border-gray-700 shadow-2xl relative z-50 animate-in fade-in zoom-in-95 duration-200">
-                        <button 
-                            onClick={() => setShowWalletModal(false)}
-                            className="absolute top-4 right-4 text-gray-400 hover:text-white p-2"
-                        >✕</button>
-                        
-                        <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-white">
-                            {transactionType === 'deposit' ? <ArrowRight className="rotate-90 text-green-500" /> : <ArrowRight className="-rotate-90 text-red-500" />}
-                            {transactionType === 'deposit' ? 'Deposit Funds' : 'Withdraw Funds'}
-                        </h2>
-
-                        <div className="mb-6">
-                            <label className="text-xs uppercase font-bold text-gray-400 block mb-2">Amount</label>
-                            <div className="relative">
-                                <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
-                                <input
-                                    type="number"
-                                    value={transactionAmount}
-                                    onChange={(e) => setTransactionAmount(Math.max(1, Number(e.target.value)))}
-                                    className="w-full bg-gray-900 border border-gray-700 rounded-lg py-3 pl-10 pr-4 text-white focus:border-indigo-500 outline-none font-mono text-lg"
-                                />
-                            </div>
-                        </div>
-
-                        <div className="flex gap-2 justify-between mb-6">
-                            {[10, 50, 100, 500, 1000].map(amt => (
-                                <button
-                                    key={amt}
-                                    onClick={() => setTransactionAmount(amt)}
-                                    className={`flex-1 py-2 px-1 text-sm rounded border transition-colors ${transactionAmount === amt
-                                            ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg'
-                                            : 'border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-500 hover:text-gray-200'
-                                        }`}
-                                >
-                                    ${amt}
-                                </button>
-                            ))}
-                        </div>
-
-                        <button
-                            onClick={confirmTransaction}
-                            disabled={loading || transactionAmount <= 0}
-                            className={`w-full py-3 rounded-xl font-bold transition-all transform active:scale-95 duration-200 flex items-center justify-center gap-2 ${transactionType === 'deposit'
-                                    ? 'bg-green-600 hover:bg-green-500 shadow-lg shadow-green-900/20 text-white'
-                                    : 'bg-red-600 hover:bg-red-500 shadow-lg shadow-red-900/20 text-white'
-                                }`}
-                        >
-                            {loading ? (
-                                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                            ) : (
-                                `Confirm ${transactionType === 'deposit' ? 'Deposit' : 'Withdrawal'}`
-                            )}
-                        </button>
-                    </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 w-full max-w-5xl mb-12">
+            <div className="bg-[#1a2c38] p-6 rounded-xl border border-gray-700 hover:border-[#00E701] transition-all cursor-pointer group" onClick={() => setInLobby(false)}>
+                <div className="h-16 w-16 bg-[#00E701]/20 rounded-full flex items-center justify-center mb-4 mx-auto group-hover:scale-110 transition-transform">
+                    <Play size={32} className="text-[#00E701]" />
                 </div>
-            )}
-            
-            {showWalletModal && (
-                <div 
-                    className="fixed inset-0 bg-black/60 z-40 backdrop-blur-sm"
-                    onClick={() => setShowWalletModal(false)}
-                />
-            )}
-
-            {/* Sidebar Controls */}
-            <div className="w-full lg:w-1/3 bg-gray-900 p-6 rounded-2xl shadow-xl shadow-black/40 border border-gray-800 flex flex-col gap-6">
-                
-                {/* Balance & User */}
-                <div className="flex justify-between items-center bg-gray-800 p-4 rounded-xl border border-gray-700">
-                     <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-indigo-600 flex items-center justify-center text-lg font-bold">
-                            {user?.username?.charAt(0).toUpperCase()}
-                        </div>
-                        <div className="flex flex-col">
-                            <span className="text-gray-400 text-xs uppercase font-bold tracking-wider">User</span>
-                            <span className="font-semibold">{user?.username}</span>
-                        </div>
-                     </div>
-                     <div className="text-right">
-                         <span className="text-gray-400 text-xs uppercase font-bold tracking-wider">Balance</span>
-                         <div className="flex items-center gap-1 text-green-400 font-mono text-lg font-bold">
-                             <DollarSign size={16} />
-                             {user?.balance}
-                         </div>
-                     </div>
-                </div>
-
-                {/* Wallet Controls */}
-                <div className="grid grid-cols-2 gap-3">
-                    <button 
-                        onClick={() => handleTransaction('deposit')}
-                        disabled={gameState === 'playing'}
-                        className="bg-gray-800 hover:bg-gray-700 text-white py-2 rounded-lg text-sm font-semibold transition-colors border border-gray-700 disabled:opacity-50"
-                    >
-                        + Deposit
-                    </button>
-                    <button 
-                        onClick={() => handleTransaction('withdraw')}
-                        disabled={gameState === 'playing'}
-                        className="bg-gray-800 hover:bg-gray-700 text-white py-2 rounded-lg text-sm font-semibold transition-colors border border-gray-700 disabled:opacity-50"
-                    >
-                        - Withdraw
-                    </button>
-                </div>
-
-                <div className="flex flex-col gap-2">
-                    <label className="text-gray-400 text-sm font-semibold uppercase tracking-wider">Bet Amount</label>
-                    <div className="relative">
-                        <input
-                            type="number"
-                            value={betAmount}
-                            onChange={(e) => setBetAmount(Number(e.target.value))}
-                            disabled={gameState === 'playing'}
-                            className="w-full bg-gray-800 border-2 border-gray-700 rounded-lg py-3 px-4 pl-10 font-mono text-lg focus:border-indigo-500 focus:outline-none transition-colors"
-                        />
-                        <Coins className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={20}/>
-                    </div>
-                </div>
-
-                <div className="flex flex-col gap-2">
-                    <label className="text-gray-400 text-sm font-semibold uppercase tracking-wider flex justify-between">
-                        <span>Mines</span>
-                        <span className="text-white bg-gray-700 px-2 rounded text-xs py-0.5">{minesCount}</span>
-                    </label>
-                    <input
-                        type="range"
-                        min="1"
-                        max="24"
-                        value={minesCount}
-                        onChange={(e) => setMinesCount(Number(e.target.value))}
-                        disabled={gameState === 'playing'}
-                        className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-                    />
-                    <div className="flex justify-between text-xs text-gray-500 font-mono">
-                        <span>1</span>
-                        <span>24</span>
-                    </div>
-                </div>
-
-                <div className="mt-auto">
-                    {gameState === 'playing' ? (
-                        <div className="flex flex-col gap-3">
-                             <div className="bg-gray-800 p-4 rounded-xl border border-gray-700 mb-2">
-                                <div className="text-gray-400 text-xs uppercase font-bold tracking-wider mb-1">Current Profit</div>
-                                <div className="text-2xl font-mono text-green-400 font-bold flex items-center gap-1">
-                                    <DollarSign size={20}/> {profit.toFixed(2)}
-                                </div>
-                             </div>
-                            <button
-                                onClick={cashout}
-                                disabled={loading || revealedCells.length === 0}
-                                className="w-full bg-green-600 hover:bg-green-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-4 px-6 rounded-xl shadow-lg shadow-green-900/20 transition-all flex items-center justify-center gap-2 uppercase tracking-widest"
-                            > 
-                                Cashout
-                            </button>
-                        </div>
-                    ) : (
-                        <button
-                            onClick={startGame}
-                            disabled={loading}
-                            className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-4 px-6 rounded-xl shadow-lg shadow-indigo-900/20 transition-all flex items-center justify-center gap-2 uppercase tracking-widest"
-                        >
-                            Start Game
-                        </button>
-                    )}
-                </div>
-
-                {error && (
-                    <div className="bg-red-900/30 border border-red-500/50 text-red-200 p-3 rounded-lg flex items-start gap-2 text-sm mt-4">
-                        <AlertCircle className="shrink-0 mt-0.5" size={16} />
-                        {error}
-                    </div>
-                )}
+                <h3 className="text-xl font-bold text-center mb-2">Jugar Ahora</h3>
+                <p className="text-gray-400 text-center text-sm">Empieza tu racha ganadora</p>
             </div>
 
-            {/* Game Grid Area */}
-            <div className="flex-1 bg-gray-900 p-8 rounded-2xl shadow-xl shadow-black/40 border border-gray-800 flex flex-col items-center justify-center relative overflow-hidden">
-                <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-indigo-900/20 via-gray-900/0 to-gray-900/0 pointer-events-none"></div>
-                
-                <div className="grid grid-cols-5 gap-3 w-full max-w-[500px] relative z-10">
-                    {Array.from({ length: 25 }).map((_, i) => renderCell(i))}
+            <div className="bg-[#1a2c38] p-6 rounded-xl border border-gray-700">
+                <div className="h-16 w-16 bg-blue-500/20 rounded-full flex items-center justify-center mb-4 mx-auto">
+                    <TrendingUp size={32} className="text-blue-400" />
                 </div>
+                <h3 className="text-xl font-bold text-center mb-2">Jackpot Global</h3>
+                <p className="text-green-400 text-center text-xl font-mono">${jackpot.toFixed(2)}</p>
+            </div>
 
-                {gameState === 'exploded' && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm z-20 rounded-2xl animate-in fade-in duration-300">
-                        <div className="bg-gray-800 p-8 rounded-2xl border border-red-500/30 shadow-2xl flex flex-col items-center gap-4 max-w-sm text-center">
-                             <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mb-2">
-                                <Bomb className="w-8 h-8 text-red-500" />
-                             </div>
-                             <h2 className="text-3xl font-bold text-white">BUSTED!</h2>
-                             <p className="text-gray-400">You hit a mine and lost your bet.</p>
-                             <button onClick={() => setGameState('idle')} className="mt-4 bg-gray-700 hover:bg-gray-600 text-white px-6 py-2 rounded-lg font-semibold transition-colors">Try Again</button>
-                        </div>
-                    </div>
-                )}
-                 
-                 {gameState === 'cashed_out' && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm z-20 rounded-2xl animate-in fade-in duration-300">
-                        <div className="bg-gray-800 p-8 rounded-2xl border border-green-500/30 shadow-2xl flex flex-col items-center gap-4 max-w-sm text-center">
-                             <div className="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center mb-2">
-                                <Coins className="w-8 h-8 text-green-500" />
-                             </div>
-                             <h2 className="text-3xl font-bold text-white">YOU WON!</h2>
-                             <p className="text-green-400 text-2xl font-mono font-bold">+${profit.toFixed(2)}</p>
-                             <button onClick={() => setGameState('idle')} className="mt-4 bg-green-600 hover:bg-green-500 text-white px-6 py-2 rounded-lg font-semibold transition-colors">Play Again</button>
-                        </div>
-                    </div>
-                )}
+            <div className="bg-[#1a2c38] p-6 rounded-xl border border-gray-700">
+                <div className="h-16 w-16 bg-purple-500/20 rounded-full flex items-center justify-center mb-4 mx-auto">
+                    <History size={32} className="text-purple-400" />
+                </div>
+                <h3 className="text-xl font-bold text-center mb-2">Recientes</h3>
+                <p className="text-gray-400 text-center text-sm">{recentGames.length} juegos jugados hoy</p>
             </div>
         </div>
-    );
+
+        <div className="w-full max-w-5xl">
+            <h3 className="text-lg font-bold mb-4 flex items-center gap-2"><History size={18}/> Últimos Juegos</h3>
+            <div className="bg-[#1a2c38] rounded-xl overflow-hidden shadow-lg">
+                <div className="grid grid-cols-4 bg-[#233542] p-3 text-sm font-semibold text-gray-300">
+                    <div>Jugador</div>
+                    <div>Apuesta</div>
+                    <div>Resultado</div>
+                    <div>Hora</div>
+                </div>
+                {recentGames.slice(0, 5).map((game: any, i) => (
+                    <div key={i} className="grid grid-cols-4 p-3 border-b border-gray-700 text-sm hover:bg-[#233542] transition-colors">
+                        <div className="text-gray-300 truncate">Usuario #{game.user_id}</div>
+                        <div className="text-gray-400">${parseFloat(game.bet_amount).toFixed(2)}</div>
+                        <div className={game.profit > 0 ? "text-[#00E701]" : "text-red-500"}>
+                            {game.profit > 0 ? `+$${parseFloat(game.profit).toFixed(2)}` : "BOOM"}
+                        </div>
+                        <div className="text-gray-500">{new Date(game.created_at).toLocaleTimeString()}</div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    </div>
+  );
+
+  if (inLobby) return renderLobby();
+
+  // Calculate max mines based on grid size
+  const totalCells = gridSize * gridSize;
+  const maxMines = totalCells - 1;
+
+  return (
+    <div className="min-h-screen bg-[#0f212e] text-gray-200 font-sans p-4 md:p-8">
+      {/* Header */}
+      <div className="max-w-7xl mx-auto flex justify-between items-center mb-8 bg-[#1a2c38] p-4 rounded-xl shadow-lg border-b border-[#2f4553]">
+        <div className="flex items-center gap-4">
+             <button onClick={() => setInLobby(true)} className="p-2 hover:bg-[#2f4553] rounded-lg transition-colors">
+                <Grid3X3 className="text-gray-400 hover:text-white" />
+             </button>
+            <h1 className="text-2xl font-bold text-white tracking-wide">MINES CASINO</h1>
+            <span className="bg-[#00E701]/10 text-[#00E701] px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider">
+                Live
+            </span>
+        </div>
+        <div className="flex items-center gap-6">
+          <div className="flex flex-col items-end">
+             <span className="text-xs text-gray-500 uppercase font-bold">Saldo</span>
+             <span className="text-[#00E701] font-mono text-xl font-bold">${typeof user?.balance === 'number' ? user.balance.toFixed(2) : parseFloat(user?.balance || '0').toFixed(2)}</span>
+          </div>
+          <button 
+            onClick={() => setSoundEnabled(!soundEnabled)}
+            className="p-3 bg-[#2f4553] rounded-full hover:bg-[#3d5565] transition-colors"
+          >
+            {soundEnabled ? <Volume2 size={20} /> : <VolumeX size={20} />}
+          </button>
+          <button onClick={logout} className="ml-2 text-gray-500 hover:text-red-400">
+             <LogOut size={20}/>
+          </button>
+        </div>
+      </div>
+
+      <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8">
+        {/* Sidebar Controls */}
+        <div className="lg:col-span-3 space-y-6">
+          <div className="bg-[#1a2c38] p-6 rounded-xl shadow-lg border border-[#2f4553]">
+            {/* Bet Input */}
+            <div className="mb-6">
+              <label className="text-xs font-bold text-gray-500 uppercase mb-2 block tracking-wider">
+                Importe de Apuesta
+              </label>
+              <div className="relative group">
+                <input
+                  type="number"
+                  value={betAmount}
+                  onChange={(e) => setBetAmount(Math.max(0, Number(e.target.value)))}
+                  disabled={activeer}
+                  className="w-full bg-[#0f212e] border-2 border-[#2f4553] rounded-lg py-3 px-4 text-white font-mono focus:border-[#00E701] focus:outline-none transition-all disabled:opacity-50"
+                  placeholder="0.00"
+                />
+                <div className="absolute right-2 top-2 flex gap-1">
+                   <button 
+                     onClick={() => setBetAmount(prev => prev / 2)}
+                     disabled={activeer}
+                     className="px-2 py-1 text-xs bg-[#2f4553] rounded hover:bg-[#3d5565] disabled:opacity-50"
+                   >½</button>
+                   <button 
+                     onClick={() => setBetAmount(prev => prev * 2)}
+                     disabled={activeer}
+                     className="px-2 py-1 text-xs bg-[#2f4553] rounded hover:bg-[#3d5565] disabled:opacity-50"
+                   >2x</button>
+                </div>
+              </div>
+            </div>
+
+            {/* Grid Size Selector */}
+             <div className="mb-6">
+                 <label className="text-xs font-bold text-gray-500 uppercase mb-2 block tracking-wider flex justify-between">
+                     <span>Tamaño de Cuadrícula</span>
+                     <span className="text-white">{gridSize}x{gridSize}</span>
+                 </label>
+                 <div className="flex gap-2">
+                     {GRID_SIZES.map(size => (
+                         <button
+                            key={size}
+                            onClick={() => {
+                                setGridSize(size);
+                                // Adjust mines if they exceed new max
+                                if (minesCount >= (size*size)) {
+                                    setMinesCount(1);
+                                }
+                            }}
+                            disabled={activeer}
+                            className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all border-2 ${
+                                gridSize === size 
+                                ? 'bg-[#00E701]/20 border-[#00E701] text-[#00E701]' 
+                                : 'bg-[#0f212e] border-transparent hover:bg-[#2f4553] text-gray-400'
+                            } disabled:opacity-50`}
+                         >
+                             {size}x
+                         </button>
+                     ))}
+                 </div>
+             </div>
+
+            {/* Mines Slider */}
+            <div className="mb-8">
+              <label className="text-xs font-bold text-gray-500 uppercase mb-2 block tracking-wider flex justify-between">
+                <span>Minas</span>
+                <span className="text-white bg-[#0f212e] px-2 py-1 rounded">{minesCount}</span>
+              </label>
+              <input 
+                type="range"
+                min="1"
+                max={maxMines}
+                value={minesCount}
+                onChange={(e) => setMinesCount(Number(e.target.value))}
+                disabled={activeer}
+                className="w-full h-2 bg-[#0f212e] rounded-lg appearance-none cursor-pointer accent-[#00E701] hover:accent-[#00ff00] transition-all disabled:opacity-50"
+              />
+              <div className="flex justify-between text-xs text-gray-500 mt-2 font-mono">
+                 <span>1</span>
+                 <span>{maxMines}</span>
+              </div>
+            </div>
+
+            {/* Action Button */}
+            <button
+              onClick={activeer ? cashout : startGame}
+              disabled={isLoading}
+              className={`w-full py-4 rounded-lg font-black text-lg uppercase tracking-widest shadow-lg transform transition-all active:scale-95 ${
+                activeer 
+                  ? 'bg-[#00E701] hover:bg-[#00c700] text-[#0f212e] shadow-[#00E701]/20' 
+                  : 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-500/20'
+              }`}
+            >
+              {isLoading ? 'Procesando...' : (
+                activeer ? (
+                  <div className="flex flex-col items-center leading-tight">
+                    <span>Retirar</span>
+                    <span className="text-sm opacity-80">${(betAmount + currentProfit).toFixed(2)}</span>
+                  </div>
+                ) : 'Apostar'
+              )}
+            </button>
+          </div>
+          
+          {/* Game Info Panel */}
+          {activeer && (
+             <div className="bg-[#1a2c38] p-4 rounded-xl border border-[#2f4553] animate-fade-in">
+                 <div className="flex justify-between mb-2">
+                     <span className="text-gray-400 text-sm">Próximo Mult.</span>
+                     <span className="text-[#00E701] font-mono">{getNextMultiplier()}x</span>
+                 </div>
+                 <div className="flex justify-between">
+                     <span className="text-gray-400 text-sm">Ganancia Actual</span>
+                     <span className="text-[#00E701] font-mono">+${currentProfit.toFixed(2)}</span>
+                 </div>
+             </div>
+          )}
+        </div>
+
+        {/* Main Game Grid */}
+        <div className="lg:col-span-9">
+          <div className="bg-[#0f212e] rounded-2xl p-4 md:p-8 h-full min-h-[500px] flex items-center justify-center relative border border-[#2f4553] shadow-2xl">
+            {/* Overlay for Cashout/Loss */}
+            {(isExploded || isCashout) && (
+              <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 backdrop-blur-sm rounded-2xl animate-fade-in">
+                <div className="bg-[#1a2c38] p-8 rounded-2xl border-2 border-[#2f4553] shadow-2xl text-center transform scale-110">
+                  {isExploded ? (
+                    <>
+                       <Bomb size={64} className="text-red-500 mx-auto mb-4 animate-bounce" />
+                       <h2 className="text-4xl font-black text-red-500 mb-2">¡BOOM!</h2>
+                       <p className="text-gray-400">Has perdido ${(betAmount).toFixed(2)}</p>
+                    </>
+                  ) : (
+                    <>
+                       <div className="h-16 w-16 bg-[#00E701]/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                          <Diamond size={32} className="text-[#00E701]" />
+                       </div>
+                       <h2 className="text-4xl font-black text-white mb-2">¡VICTORIA!</h2>
+                       <p className="text-[#00E701] text-2xl font-mono text-shadow-glow">+${currentProfit.toFixed(2)}</p>
+                    </>
+                  )}
+                  <button 
+                    onClick={() => {
+                        setIsExploded(false);
+                        setIsCashout(false);
+                        setActiveer(false);
+                        setRevealedCells([]);
+                        setCurrentProfit(0);
+                    }}
+                    className="mt-6 px-8 py-3 bg-[#2f4553] hover:bg-[#3d5565] text-white rounded-lg font-bold transition-all"
+                  >
+                    Jugar de Nuevo
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Grid */}
+            <div 
+                className="grid gap-2 md:gap-3 w-full max-w-2xl mx-auto transition-all duration-300"
+                style={getGridStyle()}
+            >
+              {Array.from({ length: totalCells }).map((_, index) => {
+                const isRevealed = revealedCells.includes(index);
+                const isMine = mineLocations.includes(index);
+                const isInteractable = activeer && !isRevealed && !isExploded && !isCashout;
+
+                return (
+                  <button
+                    key={index}
+                    onClick={() => handleCellClick(index)}
+                    disabled={!isInteractable}
+                    onMouseEnter={() => isInteractable && playSound('hover')}
+                    className={`
+                      aspect-square rounded-lg md:rounded-xl relative overflow-hidden transition-all duration-300 transform
+                      ${isInteractable ? 'hover:-translate-y-1 hover:shadow-lg hover:shadow-[#00E701]/20 cursor-pointer bg-[#2f4553]' : ''}
+                      ${isRevealed ? 'bg-[#071824]' : 'bg-[#2f4553]'}
+                      ${isMine && isExploded ? 'bg-red-500/20 border-2 border-red-500' : ''}
+                      ${!isRevealed && !isInteractable && !isMine ? 'opacity-50' : ''}
+                    `}
+                  >
+                    {isRevealed && (
+                      <div className="absolute inset-0 flex items-center justify-center animate-pop-in">
+                        <Diamond size={gridSize > 5 ? 24 : 32} className="text-[#00E701] drop-shadow-[0_0_10px_rgba(0,231,1,0.5)]" />
+                      </div>
+                    )}
+                    {isMine && (isExploded || isCashout) && (
+                      <div className="absolute inset-0 flex items-center justify-center animate-shake">
+                        <Bomb size={gridSize > 5 ? 24 : 32} className={`${isExploded ? 'text-red-500' : 'text-gray-500 opacity-50'}`} />
+                      </div>
+                    )}
+                    {!isRevealed && !isExploded && !isCashout && (
+                        <div className="absolute inset-0 bg-[#2f4553] hover:bg-[#3d5565] transition-colors rounded-lg md:rounded-xl border-b-4 border-[#1a2c38]"></div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 };
 
 export default MinesGame;
