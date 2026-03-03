@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS users (
     username VARCHAR(255) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
     balance NUMERIC(12, 2) DEFAULT 0.00,
+    is_admin BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

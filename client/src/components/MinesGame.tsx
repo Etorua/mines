@@ -12,7 +12,9 @@ import {
   Play, 
   LogOut,
   Grid3X3,
-  LayoutGrid
+  LayoutGrid,
+  Wallet,
+  X
 } from 'lucide-react';
 
 // Sound effects URLs
@@ -47,7 +49,9 @@ const MinesGame: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
   const [inLobby, setInLobby] = useState<boolean>(true);
-  
+  const [showDepositModal, setShowDepositModal] = useState<boolean>(false);
+  const [depositAmount, setDepositAmount] = useState<number>(100);
+
   // Data State
   const [recentGames, setRecentGames] = useState<any[]>([]);
   const [jackpot, setJackpot] = useState<number>(12450.32);
@@ -186,6 +190,22 @@ const MinesGame: React.FC = () => {
     }
   };
 
+  const handleDeposit = async () => {
+      if (depositAmount <= 0) return;
+      setIsLoading(true);
+      try {
+          await api.post('/users/deposit', { amount: depositAmount });
+          await refreshUser();
+          setShowDepositModal(false);
+          playSound('win'); // Feedback sound
+      } catch (error) {
+          console.error("Deposit error", error);
+          alert("Error al depositar fondos");
+      } finally {
+          setIsLoading(false);
+      }
+  };
+
   // Helper to calculate potential next multiplier locally for UI preview
   const getNextMultiplier = () => {
     // Simplified probability logic for UI display only
@@ -293,9 +313,18 @@ const MinesGame: React.FC = () => {
             </span>
         </div>
         <div className="flex items-center gap-6">
-          <div className="flex flex-col items-end">
+          <div className="flex flex-col items-end mr-2">
              <span className="text-xs text-gray-500 uppercase font-bold">Saldo</span>
-             <span className="text-[#00E701] font-mono text-xl font-bold">${typeof user?.balance === 'number' ? user.balance.toFixed(2) : parseFloat(user?.balance || '0').toFixed(2)}</span>
+             <div className="flex items-center gap-2">
+                <span className="text-[#00E701] font-mono text-xl font-bold">${typeof user?.balance === 'number' ? user.balance.toFixed(2) : parseFloat(user?.balance || '0').toFixed(2)}</span>
+                <button 
+                  onClick={() => setShowDepositModal(true)}
+                  className="bg-[#2f4553] hover:bg-[#00E701] hover:text-black text-[#00E701] p-1 rounded transition-colors"
+                  title="Agregar Fondos"
+                >
+                    <Wallet size={14} />
+                </button>
+             </div>
           </div>
           <button 
             onClick={() => setSoundEnabled(!soundEnabled)}
@@ -308,6 +337,56 @@ const MinesGame: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {showDepositModal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 backdrop-blur-sm p-4">
+            <div className="bg-[#1a2c38] p-6 rounded-2xl max-w-md w-full border border-[#2f4553] shadow-2xl animate-in fade-in zoom-in duration-200">
+                <div className="flex justify-between items-center mb-6">
+                    <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                        <Wallet className="text-[#00E701]" /> Agregar Fondos
+                    </h2>
+                    <button onClick={() => setShowDepositModal(false)} className="text-gray-500 hover:text-white transition-colors">
+                        <X size={24} />
+                    </button>
+                </div>
+                
+                <div className="mb-6">
+                    <label className="text-xs font-bold text-gray-500 uppercase mb-2 block tracking-wider">
+                        Monto a Depositar
+                    </label>
+                    <div className="relative">
+                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 font-bold">$</span>
+                        <input 
+                            type="number" 
+                            className="w-full bg-[#0f212e] border-2 border-[#2f4553] rounded-lg py-3 pl-8 pr-4 text-white font-mono focus:border-[#00E701] focus:outline-none transition-all text-lg"
+                            value={depositAmount}
+                            onChange={(e) => setDepositAmount(Number(e.target.value))}
+                            min="1"
+                        />
+                    </div>
+                    <div className="flex gap-2 mt-3">
+                        {[100, 500, 1000, 5000].map(amt => (
+                            <button
+                                key={amt}
+                                onClick={() => setDepositAmount(amt)}
+                                className="flex-1 bg-[#2f4553] hover:bg-[#3d5565] text-sm font-medium py-2 rounded-lg transition-colors text-gray-300 hover:text-white border border-transparent hover:border-gray-600"
+                            >
+                                +{amt}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
+                <button 
+                    onClick={handleDeposit}
+                    disabled={isLoading || depositAmount <= 0}
+                    className="w-full bg-[#00E701] hover:bg-[#00c501] text-black font-black uppercase tracking-wider py-4 rounded-lg shadow-[0_0_20px_rgba(0,231,1,0.3)] hover:shadow-[0_0_30px_rgba(0,231,1,0.5)] transition-all disabled:opacity-50 disabled:shadow-none translate-y-0 active:translate-y-1"
+                >
+                    {isLoading ? "Procesando..." : "Depositar Ahora"}
+                </button>
+            </div>
+        </div>
+      )}
 
       <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8">
         {/* Sidebar Controls */}

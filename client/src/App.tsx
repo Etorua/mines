@@ -24,9 +24,12 @@ const AppContent = () => {
                      </Link>
                      <div className="flex items-center gap-4">
                          {user?.is_admin && (
-                             <Link to="/admin" className="text-yellow-400 font-bold hover:text-yellow-300 transition-colors">
-                                 Admin Panel
-                             </Link>
+                             <div className="flex items-center gap-4">
+                                <span className="text-xs font-bold bg-yellow-500/20 text-yellow-500 px-2 py-1 rounded border border-yellow-500/30">ADMIN</span>
+                                <Link to="/admin" className="text-yellow-400 font-bold hover:text-yellow-300 transition-colors">
+                                    Admin Panel
+                                </Link>
+                             </div>
                          )}
                          <div className="hidden md:flex items-center gap-2 bg-gray-800/80 px-3 py-1.5 rounded-full border border-gray-700/50">
                              <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse shadow-[0_0_10px_#22c55e]"></span>
