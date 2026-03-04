@@ -51,6 +51,10 @@ const MinesGame: React.FC = () => {
   const [inLobby, setInLobby] = useState<boolean>(true);
   const [showDepositModal, setShowDepositModal] = useState<boolean>(false);
   const [depositAmount, setDepositAmount] = useState<number>(100);
+  const [paymentMethod, setPaymentMethod] = useState<'card' | 'crypto'>('card');
+  const [cardNumber, setCardNumber] = useState('');
+  const [expiry, setExpiry] = useState('');
+  const [cvc, setCvc] = useState('');
 
   // Data State
   const [recentGames, setRecentGames] = useState<any[]>([]);
@@ -189,11 +193,28 @@ const MinesGame: React.FC = () => {
       setIsLoading(false);
     }
   };
+      // Simulación de validación de tarjeta
+      if (paymentMethod === 'card') {
+          if (cardNumber.length < 16 || expiry.length < 5 || cvc.length < 3) {
+              alert("Por favor complete los datos de la tarjeta correctamente");
+              return;
+          }
+      }
 
-  const handleDeposit = async () => {
-      if (depositAmount <= 0) return;
       setIsLoading(true);
       try {
+          // Simular tiempo de procesamiento de pago
+          await new Promise(resolve => setTimeout(resolve, 1500));
+          
+          await api.post('/users/deposit', { amount: depositAmount });
+          await refreshUser();
+          setShowDepositModal(false);
+          playSound('win'); // Feedback sound
+          
+          // Reset fields
+          setCardNumber('');
+          setExpiry('');
+          setCvc('');
           await api.post('/users/deposit', { amount: depositAmount });
           await refreshUser();
           setShowDepositModal(false);
@@ -347,25 +368,112 @@ const MinesGame: React.FC = () => {
                     </h2>
                     <button onClick={() => setShowDepositModal(false)} className="text-gray-500 hover:text-white transition-colors">
                         <X size={24} />
-                    </button>
-                </div>
-                
-                <div className="mb-6">
-                    <label className="text-xs font-bold text-gray-500 uppercase mb-2 block tracking-wider">
-                        Monto a Depositar
-                    </label>
-                    <div className="relative">
-                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 font-bold">$</span>
-                        <input 
-                            type="number" 
-                            className="w-full bg-[#0f212e] border-2 border-[#2f4553] rounded-lg py-3 pl-8 pr-4 text-white font-mono focus:border-[#00E701] focus:outline-none transition-all text-lg"
-                            value={depositAmount}
-                            onChange={(e) => setDepositAmount(Number(e.target.value))}
-                            min="1"
-                        />
-                    </div>
-                    <div className="flex gap-2 mt-3">
+                    </button> mb-6">
                         {[100, 500, 1000, 5000].map(amt => (
+                            <button
+                                key={amt}
+                                onClick={() => setDepositAmount(amt)}
+                                className="flex-1 bg-[#2f4553] hover:bg-[#3d5565] text-sm font-medium py-2 rounded-lg transition-colors text-gray-300 hover:text-white border border-transparent hover:border-gray-600"
+                            >
+                                +{amt}
+                            </button>
+                        ))}
+                    </div>
+
+                    <div className="border-t border-gray-700 pt-6">
+                        <label className="text-xs font-bold text-gray-500 uppercase mb-3 block tracking-wider">
+                            Método de Pago
+                        </label>
+                        <div className="flex gap-2 mb-4">
+                            <button 
+                                onClick={() => setPaymentMethod('card')}
+                                className={`flex-1 py-2 rounded-lg text-sm font-bold border-2 transition-all ${paymentMethod === 'card' ? 'border-[#00E701] bg-[#00E701]/10 text-white' : 'border-gray-700 bg-[#0f212e] text-gray-400'}`}
+                            >
+                                Tarjeta de Crédito
+                            </button>
+                            <button 
+                                onClick={() => setPaymentMethod('crypto')}
+                                className={`flex-1 py-2 rounded-lg text-sm font-bold border-2 transition-all ${paymentMethod === 'crypto' ? 'border-[#00E701] bg-[#00E701]/10 text-white' : 'border-gray-700 bg-[#0f212e] text-gray-400'}`}
+                            >
+                                Criptomonedas
+                            </button>
+                        </div>
+
+                        {paymentMethod === 'card' ? (
+                            <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
+                                <div>
+                                    <label className="text-[10px] uppercase text-gray-500 font-bold mb-1 block">Número de Tarjeta</label>
+                                    <div className="relative">
+                                        <input 
+                                            type="text" 
+                                            placeholder="0000 0000 0000 0000"
+                                            maxLength={19}
+                                            value={cardNumber}
+                                            onChange={(e) => {
+                                                const v = e.target.value.replace(/\D/g, '').replace(/(.{4})/g, '$1 ').trim();
+                                                setCardNumber(v.substring(0, 19));
+                                            }}
+                                            className="w-full bg-[#0f212e] border border-[#2f4553] rounded-lg py-2 px-3 text-white focus:border-[#00E701] focus:outline-none transition-all placeholder-gray-600 font-mono"
+                                        />
+                                        <div className="absolute right-3 top-1/2 -translate-y-1/2 flex gap-1">
+                                            <div className="w-8 h-5 bg-gray-600 rounded"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="text-[10px] uppercase text-gray-500 font-bold mb-1 block">Expiración</label>
+                                        <input 
+                                            type="text" 
+                                            placeholder="MM/YY"
+                                            maxLength={5}
+                                            value={expiry}
+                                            onChange={(e) => {
+                                                let v = e.target.value.replace(/\D/g, '');
+                                                if(v.length >= 2) v = v.slice(0,2) + '/' + v.slice(2,4);
+                                                setExpiry(v);
+                                            }}
+                                            className="w-full bg-[#0f212e] border border-[#2f4553] rounded-lg py-2 px-3 text-white focus:border-[#00E701] focus:outline-none transition-all placeholder-gray-600 font-mono"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] uppercase text-gray-500 font-bold mb-1 block">CVC</label>
+                                        <input 
+                                            type="text" 
+                                            placeholder="123"
+                                            maxLength={3}
+                                            value={cvc}
+                                            onChange={(e) => setCvc(e.target.value.replace(/\D/g, '').slice(0,3))}
+                                            className="w-full bg-[#0f212e] border border-[#2f4553] rounded-lg py-2 px-3 text-white focus:border-[#00E701] focus:outline-none transition-all placeholder-gray-600 font-mono"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="bg-[#0f212e] p-4 rounded-lg text-center border border-[#2f4553] animate-in fade-in slide-in-from-top-2 duration-200">
+                                <p className="text-gray-400 text-sm mb-2">Envía USDT (TRC20) a:</p>
+                                <div className="bg-black/30 p-2 rounded text-xs font-mono text-[#00E701] break-all border border-dashed border-gray-700">
+                                    T9yD14Nj9...jkl329dh
+                                </div>
+                                <p className="text-xs text-gray-500 mt-2">Los fondos se acreditarán automáticamente después de 1 confirmación.</p>
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                <button 
+                    onClick={handleDeposit}
+                    disabled={isLoading || depositAmount <= 0}
+                    className="w-full bg-[#00E701] hover:bg-[#00c501] text-black font-black uppercase tracking-wider py-4 rounded-lg shadow-[0_0_20px_rgba(0,231,1,0.3)] hover:shadow-[0_0_30px_rgba(0,231,1,0.5)] transition-all disabled:opacity-50 disabled:shadow-none translate-y-0 active:translate-y-1 flex items-center justify-center gap-2"
+                >
+                    {isLoading ? (
+                        <>
+                            <span className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin"></span>
+                            Procesando Pago...
+                        </>
+                    ) : (
+                        `Pagar $${depositAmount}`
+                    )
                             <button
                                 key={amt}
                                 onClick={() => setDepositAmount(amt)}
