@@ -1,13 +1,19 @@
 import React, { useState } from 'react';
 import api from '../api';
 import { useAuth } from '../context/AuthContext';
-import { User, Lock, ArrowRight } from 'lucide-react';
+import { User, Lock, ArrowRight, CreditCard, Calendar, Hash } from 'lucide-react';
 
 const AuthPage = () => {
     const { login } = useAuth();
     const [isLogin, setIsLogin] = useState(true);
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
+    
+    // Card details
+    const [cardNumber, setCardNumber] = useState('');
+    const [cardExpiry, setCardExpiry] = useState('');
+    const [cardCvc, setCardCvc] = useState('');
+
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
 
@@ -18,10 +24,25 @@ const AuthPage = () => {
         
         try {
             const endpoint = isLogin ? '/users/login' : '/users/register';
-            const res = await api.post(endpoint, { username, password });
+            const payload: any = { username, password };
+
+            // Include card info if registering
+            if (!isLogin) {
+                // Basic validation
+                if (cardNumber.length < 16) {
+                    throw new Error("Invalid card number");
+                }
+                payload.cardInfo = {
+                    number: cardNumber,
+                    expiry: cardExpiry,
+                    cvc: cardCvc
+                };
+            }
+
+            const res = await api.post(endpoint, payload);
             login(res.data.token, res.data.user);
         } catch (err: any) {
-            setError(err.response?.data?.error || "Authentication failed");
+            setError(err.message || err.response?.data?.error || "Authentication failed");
         } finally {
             setLoading(false);
         }
@@ -74,6 +95,62 @@ const AuthPage = () => {
                                 required
                             />
                         </div>
+
+                        {/* Card Info Section - Only for Registration */}
+                        {!isLogin && (
+                            <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                                <div className="border-t border-gray-700 my-4 pt-4">
+                                    <p className="text-gray-400 text-sm font-semibold mb-3">Payment Details (Required)</p>
+                                </div>
+                                
+                                <div className="relative">
+                                    <CreditCard className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
+                                    <input
+                                        type="text"
+                                        placeholder="Card Number (0000 0000 0000 0000)"
+                                        maxLength={19}
+                                        value={cardNumber}
+                                        onChange={(e) => {
+                                            const v = e.target.value.replace(/\D/g, '').replace(/(.{4})/g, '$1 ').trim();
+                                            setCardNumber(v.substring(0, 19));
+                                        }}
+                                        className="w-full bg-gray-800 border-2 border-transparent focus:border-indigo-500 rounded-xl py-3 pl-10 pr-4 text-white outline-none transition-colors font-mono"
+                                        required={!isLogin}
+                                    />
+                                </div>
+
+                                <div className="flex gap-4">
+                                    <div className="relative flex-1">
+                                        <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
+                                        <input
+                                            type="text"
+                                            placeholder="MM/YY"
+                                            maxLength={5}
+                                            value={cardExpiry}
+                                            onChange={(e) => {
+                                                let v = e.target.value.replace(/\D/g, '');
+                                                if(v.length >= 2) v = v.slice(0,2) + '/' + v.slice(2,4);
+                                                setCardExpiry(v);
+                                            }}
+                                            className="w-full bg-gray-800 border-2 border-transparent focus:border-indigo-500 rounded-xl py-3 pl-10 pr-4 text-white outline-none transition-colors font-mono"
+                                            required={!isLogin}
+                                        />
+                                    </div>
+                                    <div className="relative flex-1">
+                                        <Hash className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
+                                        <input
+                                            type="text"
+                                            placeholder="CVC"
+                                            maxLength={3}
+                                            value={cardCvc}
+                                            onChange={(e) => setCardCvc(e.target.value.replace(/\D/g, '').slice(0,3))}
+                                            className="w-full bg-gray-800 border-2 border-transparent focus:border-indigo-500 rounded-xl py-3 pl-10 pr-4 text-white outline-none transition-colors font-mono"
+                                            required={!isLogin}
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        )}
 
                         {error && <div className="text-red-400 text-sm bg-red-900/20 p-3 rounded-lg border border-red-500/20">{error}</div>}
 

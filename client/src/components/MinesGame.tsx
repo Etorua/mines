@@ -193,38 +193,37 @@ const MinesGame: React.FC = () => {
       setIsLoading(false);
     }
   };
-      // Simulación de validación de tarjeta
-      if (paymentMethod === 'card') {
-          if (cardNumber.length < 16 || expiry.length < 5 || cvc.length < 3) {
-              alert("Por favor complete los datos de la tarjeta correctamente");
-              return;
-          }
+  const handleDeposit = async () => {
+    // Simulación de validación de tarjeta
+    if (paymentMethod === 'card') {
+      if (cardNumber.length < 16 || expiry.length < 5 || cvc.length < 3) {
+        alert("Por favor complete los datos de la tarjeta correctamente");
+        return;
       }
+    }
 
-      setIsLoading(true);
-      try {
-          // Simular tiempo de procesamiento de pago
-          await new Promise(resolve => setTimeout(resolve, 1500));
-          
-          await api.post('/users/deposit', { amount: depositAmount });
-          await refreshUser();
-          setShowDepositModal(false);
-          playSound('win'); // Feedback sound
-          
-          // Reset fields
-          setCardNumber('');
-          setExpiry('');
-          setCvc('');
-          await api.post('/users/deposit', { amount: depositAmount });
-          await refreshUser();
-          setShowDepositModal(false);
-          playSound('win'); // Feedback sound
-      } catch (error) {
-          console.error("Deposit error", error);
-          alert("Error al depositar fondos");
-      } finally {
-          setIsLoading(false);
-      }
+    setIsLoading(true);
+    try {
+      // Simular tiempo de procesamiento de pago
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      
+      await api.post('/users/deposit', { amount: depositAmount });
+      await refreshUser();
+      
+      // Reset fields
+      setCardNumber('');
+      setExpiry('');
+      setCvc('');
+      
+      setShowDepositModal(false);
+      playSound('win'); // Feedback sound
+      
+    } catch (error) {
+      console.error("Deposit error", error);
+      alert("Error al depositar fondos");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   // Helper to calculate potential next multiplier locally for UI preview
@@ -368,7 +367,10 @@ const MinesGame: React.FC = () => {
                     </h2>
                     <button onClick={() => setShowDepositModal(false)} className="text-gray-500 hover:text-white transition-colors">
                         <X size={24} />
-                    </button> mb-6">
+                    </button>
+                </div>
+                
+                <div className="flex gap-2 mb-6">
                         {[100, 500, 1000, 5000].map(amt => (
                             <button
                                 key={amt}
@@ -459,7 +461,6 @@ const MinesGame: React.FC = () => {
                             </div>
                         )}
                     </div>
-                </div>
 
                 <button 
                     onClick={handleDeposit}
@@ -473,24 +474,7 @@ const MinesGame: React.FC = () => {
                         </>
                     ) : (
                         `Pagar $${depositAmount}`
-                    )
-                            <button
-                                key={amt}
-                                onClick={() => setDepositAmount(amt)}
-                                className="flex-1 bg-[#2f4553] hover:bg-[#3d5565] text-sm font-medium py-2 rounded-lg transition-colors text-gray-300 hover:text-white border border-transparent hover:border-gray-600"
-                            >
-                                +{amt}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-
-                <button 
-                    onClick={handleDeposit}
-                    disabled={isLoading || depositAmount <= 0}
-                    className="w-full bg-[#00E701] hover:bg-[#00c501] text-black font-black uppercase tracking-wider py-4 rounded-lg shadow-[0_0_20px_rgba(0,231,1,0.3)] hover:shadow-[0_0_30px_rgba(0,231,1,0.5)] transition-all disabled:opacity-50 disabled:shadow-none translate-y-0 active:translate-y-1"
-                >
-                    {isLoading ? "Procesando..." : "Depositar Ahora"}
+                    )}
                 </button>
             </div>
         </div>

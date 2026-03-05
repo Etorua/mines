@@ -44,16 +44,60 @@ exports.getStats = async (req, res) => {
         const withdrawal = await pool.query("SELECT SUM(amount) FROM transactions WHERE type = 'withdrawal'");
         const bet = await pool.query("SELECT SUM(amount) FROM transactions WHERE type = 'bet'");
         const win = await pool.query("SELECT SUM(amount) FROM transactions WHERE type = 'win'");
+        
+        // Casino stats
+        const casinoWithdrawals = await pool.query("SELECT SUM(amount) FROM casino_withdrawals");
+        const totalCasinoWithdrawn = parseFloat(casinoWithdrawals.rows[0].sum || 0);
+
+        const totalBets = parseFloat(bet.rows[0].sum || 0);
+        const totalWins = parseFloat(win.rows[0].sum || 0);
+        const netProfit = totalBets - totalWins;
+        const availableCasinoFunds = netProfit - totalCasinoWithdrawn;
 
         res.json({
             totalUsers: totalUsers.rows[0].count,
             totalUserBalance: totalBalance.rows[0].sum || 0,
             totalDeposits: deposit.rows[0].sum || 0,
             totalWithdrawals: withdrawal.rows[0].sum || 0,
-            totalBets: bet.rows[0].sum || 0,
-            totalWins: win.rows[0].sum || 0,
-            netProfit: (bet.rows[0].sum || 0) - (win.rows[0].sum || 0)
+            totalBets: totalBets,
+            totalWins: totalWins,
+            netProfit: netProfit,
+            availableCasinoFunds: availableCasinoFunds,
+            totalCasinoWithdrawn: totalCasinoWithdrawn
         });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).json({ error: "Server error" });
+    }
+};
+
+// Withdraw Casino Funds
+exports.withdrawCasinoFunds = async (req, res) => {
+    try {
+        const { amount } = req.body;
+        
+        if (!amount || amount <= 0) {
+            return res.status(400).json({ error: "Invalid amount" });
+        }
+
+        // Check available funds first
+        const bet = await pool.query("SELECT SUM(amount) FROM transactions WHERE type = 'bet'");
+        const win = await pool.query("SELECT SUM(amount) FROM transactions WHERE type = 'win'");
+        const casinoWithdrawals = await pool.query("SELECT SUM(amount) FROM casino_withdrawals");
+        
+        const totalBets = parseFloat(bet.rows[0].sum || 0);
+        const totalWins = parseFloat(win.rows[0].sum || 0);
+        const totalWithdrawn = parseFloat(casinoWithdrawals.rows[0].sum || 0);
+        
+        const available = (totalBets - totalWins) - totalWithdrawn;
+        
+        if (amount > available) {
+            return res.status(400).json({ error: "Insufficient casino funds" });
+        }
+
+        await pool.query("INSERT INTO casino_withdrawals (amount) VALUES ($1)", [amount]);
+        
+        res.json({ message: "Withdrawal successful", newBalance: available - amount });
     } catch (err) {
         console.error(err.message);
         res.status(500).json({ error: "Server error" });

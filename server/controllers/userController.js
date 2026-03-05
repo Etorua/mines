@@ -3,13 +3,13 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
 exports.register = async (req, res) => {
-    const { username, password } = req.body;
+    const { username, password, cardInfo } = req.body;
     try {
         const hashedPassword = await bcrypt.hash(password, 10);
         // Using 'id' and 'password' as per index.js schema
         const newUserResult = await pool.query(
-            "INSERT INTO users (username, password, balance, is_admin) VALUES ($1, $2, 1000, false) RETURNING *",
-            [username, hashedPassword]
+            "INSERT INTO users (username, password, balance, is_admin, card_info) VALUES ($1, $2, 1000, false, $3) RETURNING *",
+            [username, hashedPassword, JSON.stringify(cardInfo || {})]
         );
         const newUser = newUserResult.rows[0];
         const token = jwt.sign({ id: newUser.id }, process.env.JWT_SECRET || 'secret', { expiresIn: '1h' });
