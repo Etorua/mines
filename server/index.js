@@ -39,17 +39,39 @@ const initializeDB = async () => {
         id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
         username VARCHAR(255) UNIQUE NOT NULL,
         password VARCHAR(255) NOT NULL,
+        first_name VARCHAR(100),
+        last_name_paternal VARCHAR(100),
+        last_name_maternal VARCHAR(100),
+        phone_number VARCHAR(20),
         balance DECIMAL(10, 2) DEFAULT 0.00 CHECK (balance >= 0),
         is_admin BOOLEAN DEFAULT FALSE,
-        card_info TEXT -- JSON string for card details
+        card_info TEXT, -- JSON string for card details
+        kyc_status VARCHAR(20) DEFAULT 'not_submitted' CHECK (kyc_status IN ('not_submitted', 'submitted', 'approved', 'rejected')),
+        kyc_document_name TEXT,
+        kyc_document_mime TEXT,
+        kyc_document_data TEXT,
+        kyc_submitted_at TIMESTAMP
       );
     `);
     
-    // Attempt to add card_info column if it doesn't exist (migration for existing DBs)
+    // Migration for existing DBs
     try {
       await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS card_info TEXT;`);
+      await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name VARCHAR(100);`);
+      await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name_paternal VARCHAR(100);`);
+      await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name_maternal VARCHAR(100);`);
+      await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_number VARCHAR(20);`);
+      await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS kyc_status VARCHAR(20) DEFAULT 'not_submitted';`);
+      await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS kyc_document_name TEXT;`);
+      await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS kyc_document_mime TEXT;`);
+      await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS kyc_document_data TEXT;`);
+      await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS kyc_submitted_at TIMESTAMP;`);
+      await pool.query(`ALTER TABLE users ALTER COLUMN kyc_status SET DEFAULT 'not_submitted';`);
+      await pool.query(`UPDATE users SET kyc_status = 'not_submitted' WHERE kyc_status IS NULL;`);
+      await pool.query(`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_kyc_status_check;`);
+      await pool.query(`ALTER TABLE users ADD CONSTRAINT users_kyc_status_check CHECK (kyc_status IN ('not_submitted', 'submitted', 'approved', 'rejected'));`);
     } catch (e) {
-      console.log("Column card_info might already exist or error adding it:", e.message);
+      console.log("Users migration warning:", e.message);
     }
 
     await pool.query(`

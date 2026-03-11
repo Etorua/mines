@@ -1,4 +1,3 @@
-import React, { useContext } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Link } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import MinesGame from './components/MinesGame';

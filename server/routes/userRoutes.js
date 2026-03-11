@@ -6,6 +6,7 @@ const authMiddleware = require('../middleware/authMiddleware');
 router.post('/register', userController.register);
 router.post('/login', userController.login);
 router.get('/profile', authMiddleware, userController.getProfile);
+router.post('/verification-document', authMiddleware, userController.uploadVerificationDocument);
 router.post('/deposit', authMiddleware, userController.deposit);
 router.post('/withdraw', authMiddleware, userController.withdraw);
 

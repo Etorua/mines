@@ -1,10 +1,18 @@
-import React, { createContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useState, useEffect } from 'react';
+import type { ReactNode } from 'react';
 import api from '../api';
 
 interface User {
     id: string;
     username: string;
-    balance: string;
+    first_name?: string;
+    last_name_paternal?: string;
+    last_name_maternal?: string;
+    phone_number?: string;
+    kyc_status?: 'not_submitted' | 'submitted' | 'approved' | 'rejected';
+    kyc_document_name?: string;
+    kyc_submitted_at?: string;
+    balance: string | number;
     is_admin: boolean;
 }
 

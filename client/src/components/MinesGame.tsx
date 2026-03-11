@@ -8,13 +8,13 @@ import {
   VolumeX, 
   TrendingUp, 
   History, 
-  ShieldCheck, 
-  Play, 
+  ShieldCheck,
+  Play,
   LogOut,
   Grid3X3,
-  LayoutGrid,
   Wallet,
-  X
+  X,
+  Upload
 } from 'lucide-react';
 
 // Sound effects URLs
@@ -50,6 +50,9 @@ const MinesGame: React.FC = () => {
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
   const [inLobby, setInLobby] = useState<boolean>(true);
   const [showDepositModal, setShowDepositModal] = useState<boolean>(false);
+  const [showVerificationModal, setShowVerificationModal] = useState<boolean>(false);
+  const [verificationFile, setVerificationFile] = useState<File | null>(null);
+  const [verificationError, setVerificationError] = useState<string>('');
   const [depositAmount, setDepositAmount] = useState<number>(100);
   const [paymentMethod, setPaymentMethod] = useState<'card' | 'crypto'>('card');
   const [cardNumber, setCardNumber] = useState('');
@@ -120,8 +123,58 @@ const MinesGame: React.FC = () => {
     }
   };
 
+  const readFileAsDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('No se pudo leer el archivo.'));
+    reader.readAsDataURL(file);
+  });
+
+  const openDepositFlow = () => {
+    if (user?.kyc_status === 'not_submitted' || !user?.kyc_status) {
+      setShowVerificationModal(true);
+      return;
+    }
+    setShowDepositModal(true);
+  };
+
+  const handleUploadVerification = async () => {
+    if (!verificationFile) {
+      setVerificationError('Selecciona una identificacion oficial para continuar.');
+      return;
+    }
+
+    if (verificationFile.size > 5 * 1024 * 1024) {
+      setVerificationError('El archivo excede 5MB.');
+      return;
+    }
+
+    setIsLoading(true);
+    setVerificationError('');
+
+    try {
+      const documentData = await readFileAsDataUrl(verificationFile);
+      await api.post('/users/verification-document', {
+        documentName: verificationFile.name,
+        documentMime: verificationFile.type || 'application/octet-stream',
+        documentData,
+      });
+
+      await refreshUser();
+      setShowVerificationModal(false);
+      setShowDepositModal(true);
+      setVerificationFile(null);
+    } catch (error: any) {
+      console.error('Verification upload error', error);
+      setVerificationError(error.response?.data?.error || 'No se pudo subir tu identificacion.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const startGame = async () => {
-    if (betAmount > user!.balance) {
+    const availableBalance = Number(user?.balance || 0);
+    if (betAmount > availableBalance) {
       alert("Fondos insuficientes");
       return;
     }
@@ -218,9 +271,9 @@ const MinesGame: React.FC = () => {
       setShowDepositModal(false);
       playSound('win'); // Feedback sound
       
-    } catch (error) {
+    } catch (error: any) {
       console.error("Deposit error", error);
-      alert("Error al depositar fondos");
+      alert(error.response?.data?.error || "Error al depositar fondos");
     } finally {
       setIsLoading(false);
     }
@@ -318,6 +371,7 @@ const MinesGame: React.FC = () => {
   // Calculate max mines based on grid size
   const totalCells = gridSize * gridSize;
   const maxMines = totalCells - 1;
+  const formattedBalance = Number(user?.balance || 0).toFixed(2);
 
   return (
     <div className="min-h-screen bg-[#0f212e] text-gray-200 font-sans p-4 md:p-8">
@@ -336,9 +390,9 @@ const MinesGame: React.FC = () => {
           <div className="flex flex-col items-end mr-2">
              <span className="text-xs text-gray-500 uppercase font-bold">Saldo</span>
              <div className="flex items-center gap-2">
-                <span className="text-[#00E701] font-mono text-xl font-bold">${typeof user?.balance === 'number' ? user.balance.toFixed(2) : parseFloat(user?.balance || '0').toFixed(2)}</span>
-                <button 
-                  onClick={() => setShowDepositModal(true)}
+                <span className="text-[#00E701] font-mono text-xl font-bold">${formattedBalance}</span>
+                <button
+                  onClick={openDepositFlow}
                   className="bg-[#2f4553] hover:bg-[#00E701] hover:text-black text-[#00E701] p-1 rounded transition-colors"
                   title="Agregar Fondos"
                 >
@@ -357,6 +411,75 @@ const MinesGame: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {(user?.kyc_status === 'not_submitted' || !user?.kyc_status) && (
+        <div className="max-w-7xl mx-auto mb-6 bg-yellow-400/10 border border-yellow-500/40 rounded-xl p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+          <div className="flex items-center gap-3 text-yellow-300">
+            <ShieldCheck size={18} />
+            <p className="text-sm">
+              Para realizar depositos, primero debes subir una identificacion oficial.
+            </p>
+          </div>
+          <button
+            onClick={() => setShowVerificationModal(true)}
+            className="bg-yellow-400 text-black px-4 py-2 rounded-lg text-sm font-bold hover:bg-yellow-300 transition-colors"
+          >
+            Subir identificacion
+          </button>
+        </div>
+      )}
+
+      {showVerificationModal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 backdrop-blur-sm p-4">
+          <div className="bg-[#1a2c38] p-6 rounded-2xl max-w-md w-full border border-[#2f4553] shadow-2xl">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                <Upload className="text-yellow-300" /> Verificacion de Identidad
+              </h2>
+              <button
+                onClick={() => {
+                  setShowVerificationModal(false);
+                  setVerificationError('');
+                }}
+                className="text-gray-500 hover:text-white transition-colors"
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            <p className="text-sm text-gray-300 mb-3">
+              Sube tu identificacion oficial para habilitar depositos (INE, pasaporte o licencia).
+            </p>
+
+            <input
+              type="file"
+              accept="image/*,.pdf"
+              onChange={(e) => setVerificationFile(e.target.files?.[0] || null)}
+              className="w-full bg-[#0f212e] border border-[#2f4553] rounded-lg py-2 px-3 text-sm text-gray-300 mb-3"
+            />
+
+            {verificationFile && (
+              <p className="text-xs text-gray-400 mb-3 truncate">
+                Archivo: {verificationFile.name}
+              </p>
+            )}
+
+            {verificationError && (
+              <p className="text-xs text-red-400 bg-red-950/20 border border-red-500/30 rounded p-2 mb-3">
+                {verificationError}
+              </p>
+            )}
+
+            <button
+              onClick={handleUploadVerification}
+              disabled={isLoading}
+              className="w-full bg-yellow-400 text-black font-bold py-3 rounded-lg hover:bg-yellow-300 transition-colors disabled:opacity-60"
+            >
+              {isLoading ? 'Subiendo...' : 'Enviar identificacion'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {showDepositModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 backdrop-blur-sm p-4">
